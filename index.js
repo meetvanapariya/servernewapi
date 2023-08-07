@@ -76,34 +76,76 @@ app.post("/payment", async (req, res) => {
 
 app.post("/pay", async (req, res) => {
   const uuid = uuidv4();
-  let { id, priceId } = req.body;
+  let { id, priceId, amount } = req.body;
   try {
     const customer = await stripe.customers.create({
       id: uuid,
-      email: "testing6@gmail.com",
+      email: "testing9@gmail.com",
       payment_method: id,
       invoice_settings: {
         default_payment_method: id,
       },
     });
-    const subscription = await stripe.subscriptions.create({
-      customer: customer.id,
-      items: [{ plan: priceId }],
-      payment_settings: {
+    if (priceId == "price_1NbJBQAYF8m6Yfq3sQwgg2rV") {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount,
+        currency: "GBP",
+        description: "One time payment",
+        payment_method: id,
+        customer: customer.id,
+        confirm: true,
+        payment_method_types: ["card"],
         payment_method_options: {
           card: {
             request_three_d_secure: "any",
           },
         },
-        payment_method_types: ["card"],
-        save_default_payment_method: "on_subscription",
-      },
-      expand: ["latest_invoice.payment_intent"],
-    });
-    const clientSecret =
-      subscription.latest_invoice.payment_intent.client_secret;
-    res.json({ clientSecret, message: "Payment Initiated" });
+      });
+      const clientSecret = paymentIntent.client_secret;
+      try {
+        //create invoice
+        const invoice = await stripe.invoices.create({
+          customer: paymentIntent.customer,
+          collection_method: "send_invoice",
+          days_until_due: 30,
+        });
+
+        // Create invoice items
+        const invoiceItems = await stripe.invoiceItems.create({
+          customer: paymentIntent.customer,
+          price: priceId,
+          quantity: 1,
+          invoice: invoice.id,
+        });
+
+        await stripe.invoices.finalizeInvoice(invoice.id);
+        await stripe.invoices.pay(invoice.id);
+      } catch (e) {
+        console.log(e);
+      }
+
+      res.json({ clientSecret, message: "Payment Initiated" });
+    } else {
+      const subscription = await stripe.subscriptions.create({
+        customer: customer.id,
+        items: [{ plan: priceId }],
+        payment_settings: {
+          payment_method_options: {
+            card: {
+              request_three_d_secure: "any",
+            },
+          },
+          payment_method_types: ["card"],
+          save_default_payment_method: "on_subscription",
+        },
+        expand: ["latest_invoice.payment_intent"],
+      });
+      const clientSecret =
+        subscription.latest_invoice.payment_intent.client_secret;
+      res.json({ clientSecret, message: "Payment Initiated" });
+    }
   } catch (err) {
+    console.log(err);
     res.status(500).json({ message: err?.raw?.message });
   }
 });
